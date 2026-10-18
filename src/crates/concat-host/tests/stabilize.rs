@@ -75,6 +75,7 @@ fn shoot(path: &Path) {
         color_range: concat_media::ColorRange::Limited,
         hardware: false,
         threads: 0,
+        keyframe_interval: 0,
     };
     let mut encoder = Encoder::create(path, WIDTH, HEIGHT, FrameRate::THIRTY, &options)
         .expect("the linked FFmpeg encodes");

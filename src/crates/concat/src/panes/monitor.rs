@@ -153,6 +153,13 @@ impl MonitorPane {
                         .count((spec.time * fps + 1e-6).floor() as i64, wait);
                 } else if !spec.moving {
                     self.cadence.report(fps);
+                    // What a scrub waits for each step, and where from.
+                    log::debug!(
+                        "monitor: the frame at {:.3}s took {} ms from the {}",
+                        spec.time,
+                        wait.as_millis(),
+                        if spec.proxy { "proxies" } else { "files" },
+                    );
                 }
                 let picture = match result {
                     // Drawn here and not on the worker: this is the event
@@ -242,12 +249,16 @@ impl MonitorPane {
             width,
             height,
             moving: studio.playing || studio.source.as_ref().is_some_and(|source| source.playing),
-            // Playback reads the proxies at Half and Quarter; Full plays
-            // the files themselves, or Full would be the proxy blurred up.
-            // With proxies off in Settings it plays the files at every
-            // quality, a proxy left from before included.
+            // Playback reads the proxies at Half and Quarter, and so does a
+            // scrub until the playhead comes to rest (see
+            // `Studio::scrubbing`); Full plays the files themselves, or
+            // Full would be the proxy blurred up. With proxies off in
+            // Settings it plays the files at every quality, a proxy left
+            // from before included.
             proxy: studio.prefs.proxies
-                && (studio.playing || studio.source.as_ref().is_some_and(|source| source.playing))
+                && (studio.playing
+                    || studio.scrubbing()
+                    || studio.source.as_ref().is_some_and(|source| source.playing))
                 && quality > 0,
             color_space: studio.project().active().video.color_space,
         };

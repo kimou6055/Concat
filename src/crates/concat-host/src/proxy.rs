@@ -31,6 +31,11 @@ const PIXELS_WITHOUT_PROXY: u64 = 1920 * 1080;
 /// shorter than [`SHORTEST_LONG_SIDE`].
 const DIVISOR: u32 = 4;
 const SHORTEST_LONG_SIDE: u32 = 960;
+/// Frames between the proxy's keyframes. A scrub reads the proxy at
+/// random, and a frame there is a seek to the keyframe before it and a
+/// decode of every frame on to it: at x264's own spacing that was up to
+/// 250 decodes a step, at this it is never more than ten.
+const KEYFRAME_INTERVAL: u32 = 10;
 
 /// Whether a `width` by `height` file is worth a proxy.
 pub fn wanted(width: u32, height: u32) -> bool {
@@ -54,8 +59,10 @@ pub fn size_for(width: u32, height: u32) -> (u32, u32) {
 /// since the copy is written from the corrected picture and a correction
 /// changed is a different copy - and by whether the file is HDR, whose
 /// proxy keeps its signal, so the tone-mapped copies earlier builds wrote
-/// of one are written again. None for a file that cannot be stat'ed,
-/// which cannot be read either.
+/// of one are written again - and by the keyframe spacing, so the copies
+/// written with keyframes seconds apart, slow to scrub, are written again
+/// too. None for a file that cannot be stat'ed, which cannot be read
+/// either.
 pub fn path_for(
     project: &Path,
     media: &str,
@@ -66,6 +73,7 @@ pub fn path_for(
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     media.hash(&mut hasher);
     meta.len().hash(&mut hasher);
+    KEYFRAME_INTERVAL.hash(&mut hasher);
     if let Some(range) = range {
         range.name().hash(&mut hasher);
     }
@@ -238,6 +246,7 @@ pub fn write(
         // media engine does it for nothing where there is one.
         hardware: hdr,
         threads: 2,
+        keyframe_interval: KEYFRAME_INTERVAL,
     };
     let mut encoder = if hdr {
         Encoder::create_hdr(&partial, width, height, rate, &encoding, signal)

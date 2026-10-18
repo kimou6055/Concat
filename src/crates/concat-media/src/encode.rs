@@ -286,6 +286,10 @@ pub struct EncodeOptions {
     /// Zero for an export; a few for a proxy written while the editor is
     /// in use.
     pub threads: u16,
+    /// Frames from one keyframe to the next, or zero for the encoder's own
+    /// spacing. Zero for an export; a few for a proxy, which a scrub reads
+    /// at random and where every frame past the keyframe is a decode more.
+    pub keyframe_interval: u32,
 }
 
 impl Default for EncodeOptions {
@@ -300,6 +304,7 @@ impl Default for EncodeOptions {
             color_range: ColorRange::Limited,
             hardware: true,
             threads: 0,
+            keyframe_interval: 0,
         }
     }
 }
@@ -677,6 +682,11 @@ fn open_video(
         // is one per second rounded from a GOP of twelve frames.
         let fps = (f64::from(rate.numerator()) / f64::from(rate.denominator().max(1))).round();
         video.set_gop((fps.max(1.0) * 2.0) as u32);
+    }
+    // Asked for, the spacing beats every default above: x264 reads the
+    // context's GOP as its keyint, VideoToolbox as its keyframe interval.
+    if options.keyframe_interval > 0 {
+        video.set_gop(options.keyframe_interval);
     }
     // An average, on the context as well as in each encoder's own words:
     // the AV1 encoders read the target and the ceiling from there.
@@ -1944,6 +1954,7 @@ mod tests {
             color_range: ColorRange::Limited,
             hardware: false,
             threads: 0,
+            keyframe_interval: 0,
         };
         let rate = FrameRate::new(concat_core::time::Rational::new(25, 1));
         const FRAMES: u32 = 150;
@@ -2319,6 +2330,7 @@ mod tests {
                     color_range: ColorRange::Limited,
                     hardware: true,
                     threads: 0,
+                    keyframe_interval: 0,
                 };
                 let mut encoder = Encoder::create(&path, 64, 64, FrameRate::THIRTY, &options)
                     .unwrap_or_else(|error| panic!("{} {ten_bit}: {error}", codec.label()));
@@ -2363,6 +2375,7 @@ mod tests {
             color_range: ColorRange::Limited,
             hardware: true,
             threads: 0,
+            keyframe_interval: 0,
         };
         let refused = std::env::temp_dir().join("concat-encode-hdr-h264.mp4");
         assert!(

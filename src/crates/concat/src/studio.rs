@@ -850,6 +850,11 @@ pub struct Studio {
     /// beat that moves them while they do; see `panes::glide`.
     coast: crate::panes::glide::Coast,
     glide_beat: slint::Timer,
+    /// When the playhead was last scrubbed, and the beat after it that
+    /// brings the monitor back to the files once it has come to rest; see
+    /// [`Studio::scrubbing`].
+    last_scrub: Option<std::time::Instant>,
+    scrub_rest: slint::Timer,
     /// The preview axis: the instant under the pointer while it crosses the
     /// lanes, which the monitor shows instead of the playhead's. None when
     /// the pointer is elsewhere, or the axis is off, or the cut is playing.
@@ -2275,6 +2280,8 @@ impl Studio {
             transport: slint::Timer::default(),
             coast: crate::panes::glide::Coast::default(),
             glide_beat: slint::Timer::default(),
+            last_scrub: None,
+            scrub_rest: slint::Timer::default(),
             hover: None,
             hover_hush: slint::Timer::default(),
             clipboard: Vec::new(),
@@ -3146,6 +3153,11 @@ impl Studio {
     /// still running stops where it is, the way a list does under a
     /// thumb, and the scrubs from here are the new gesture's samples.
     pub fn finger_held(&mut self) {
+        // A glide stopped under the finger left a proxy's frame on the
+        // monitor; a finger that then stays still gets the file's.
+        if self.coast.glide.is_some() {
+            self.rest_soon();
+        }
         self.stop_glide();
         self.coast.tracker.clear();
         self.coast.tracking = true;
@@ -3154,11 +3166,52 @@ impl Studio {
     /// A scrub: the playhead goes to `seconds`, and while a finger is on
     /// the phone's lanes, where it went is a sample of how fast they move.
     pub fn scrub(&mut self, seconds: f32) {
+        // Before the seek, which asks for the frame: this one is a scrub's.
+        self.last_scrub = Some(std::time::Instant::now());
         self.seek(seconds.max(0.0));
         if self.coast.tracking {
             let at = self.coast.clock();
             self.coast.tracker.push(at, f64::from(self.playhead));
         }
+        self.rest_soon();
+    }
+
+    /// How long a playhead goes without a scrub before it is at rest.
+    const SCRUB_REST: std::time::Duration = std::time::Duration::from_millis(150);
+
+    /// The playhead is being scrubbed, by a finger, a pointer or a glide:
+    /// the monitor reads the proxies then, the way playback does. A frame
+    /// of a 4K file is a seek back to a keyframe and a decode of every
+    /// frame from there, which a phone does slower than a finger drags,
+    /// and the picture fell further behind the finger with every step.
+    /// At rest the frame comes from the file itself again.
+    pub fn scrubbing(&self) -> bool {
+        self.coast.glide.is_some()
+            || self
+                .last_scrub
+                .is_some_and(|at| at.elapsed() < Self::SCRUB_REST)
+    }
+
+    /// Asks for the frame again once the playhead has been still for
+    /// [`Self::SCRUB_REST`]; each scrub pushes it back.
+    fn rest_soon(&mut self) {
+        self.scrub_rest
+            .start(slint::TimerMode::SingleShot, Self::SCRUB_REST, || {
+                crate::host::Shell::with(|shell, _| {
+                    shell.studio.borrow_mut().settle();
+                });
+            });
+    }
+
+    /// The playhead has come to rest: its frame from the file itself,
+    /// sharp, in place of the proxy's. Nothing while a glide or playback
+    /// still moves it; the glide settles when it stops.
+    fn settle(&mut self) {
+        if self.playing || self.coast.glide.is_some() {
+            return;
+        }
+        self.last_scrub = None;
+        self.request_preview();
     }
 
     /// The finger that dragged the phone's lanes along the cut has let go:
@@ -3212,7 +3265,9 @@ impl Studio {
         if going && !reached {
             self.coast.glide = Some((glide, since, limit as f32));
         } else {
+            // The step above was the glide's last, read from the proxies.
             self.stop_glide();
+            self.settle();
         }
     }
 

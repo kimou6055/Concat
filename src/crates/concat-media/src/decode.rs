@@ -1557,6 +1557,7 @@ mod tests {
             color_range: ColorRange::Limited,
             hardware: false,
             threads: 0,
+            keyframe_interval: 0,
         };
         let mut encoder = Encoder::create_tagged(
             &path,

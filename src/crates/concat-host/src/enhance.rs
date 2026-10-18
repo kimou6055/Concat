@@ -398,6 +398,7 @@ fn footage(
             color_range: concat_media::ColorRange::Limited,
             hardware: false,
             threads: 2,
+            keyframe_interval: 0,
         },
     )
     .map_err(|error| error.to_string())?;
